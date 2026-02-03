@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useCallback, useRef } from "react";
-import { Upload, Video, Loader2, Download, Image as ImageIcon, CheckCircle2, AlertCircle, Play, XCircle } from "lucide-react";
+import { Upload, Video, Loader2, Download, Image as ImageIcon, CheckCircle2, AlertCircle, XCircle } from "lucide-react";
 import axios from "axios";
 
 interface JobStatus {

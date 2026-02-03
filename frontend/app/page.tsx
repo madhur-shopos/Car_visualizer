@@ -4,8 +4,6 @@ import { useState, useCallback, useRef } from "react";
 import { Upload, Video, Loader2, Download, Image as ImageIcon, CheckCircle2, AlertCircle, Play, XCircle } from "lucide-react";
 import axios from "axios";
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
-
 interface JobStatus {
   job_id: string;
   status: string;
@@ -53,7 +51,7 @@ export default function Home() {
     files.forEach(file => formData.append('files', file));
 
     try {
-      const response = await axios.post(`${API_URL}/api/upload`, formData, {
+      const response = await axios.post('/api/upload', formData, {
         headers: { 'Content-Type': 'multipart/form-data' },
       });
       
@@ -73,7 +71,7 @@ export default function Home() {
 
     const interval = setInterval(async () => {
       try {
-        const response = await axios.get(`${API_URL}/api/status/${id}`);
+        const response = await axios.get(`/api/status/${id}`);
         setJobStatus(response.data);
 
         if (response.data.status === 'completed' || response.data.status === 'failed' || response.data.status === 'cancelled') {
@@ -99,7 +97,7 @@ export default function Home() {
 
     setIsCancelling(true);
     try {
-      await axios.post(`${API_URL}/api/cancel/${jobId}`);
+      await axios.post(`/api/cancel/${jobId}`);
       
       // Stop polling
       if (pollingIntervalRef.current) {
@@ -123,13 +121,13 @@ export default function Home() {
 
   const downloadVideo = () => {
     if (jobId) {
-      window.open(`${API_URL}/api/download/${jobId}/video`, '_blank');
+      window.open(`/api/download/${jobId}/video`, '_blank');
     }
   };
 
   const downloadContactSheet = () => {
     if (jobId) {
-      window.open(`${API_URL}/api/download/${jobId}/contact-sheet`, '_blank');
+      window.open(`/api/download/${jobId}/contact-sheet`, '_blank');
     }
   };
 
@@ -297,7 +295,7 @@ export default function Home() {
                   <video
                     controls
                     className="w-full h-full"
-                    src={`${API_URL}/api/download/${jobId}/video`}
+                    src={`/api/download/${jobId}/video`}
                   >
                     Your browser does not support the video tag.
                   </video>

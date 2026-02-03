@@ -4,6 +4,6 @@
   "installCommand": "npm install",
   "framework": "nextjs",
   "env": {
-    "NEXT_PUBLIC_API_URL": "https://car-visualizer-6a04.onrender.com"
+    "BACKEND_API_URL": "https://car-visualizer-6a04.onrender.com"
   }
 }

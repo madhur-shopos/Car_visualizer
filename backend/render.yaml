@@ -1,0 +1,22 @@
+services:
+  - type: web
+    name: car-video-generator-api
+    runtime: docker
+    dockerfilePath: ./backend/Dockerfile
+    dockerContext: .
+    envVars:
+      - key: PORT
+        value: 8000
+      - key: GOOGLE_API_KEY
+        sync: false
+      - key: HIGGSFIELD_API_KEY
+        sync: false
+      - key: HIGGSFIELD_API_SECRET
+        sync: false
+      - key: IMGBB_API_KEY
+        sync: false
+      - key: HIGGSFIELD_API_KEY2
+        sync: false
+      - key: HIGGSFIELD_API_SECRET2
+        sync: false
+    healthCheckPath: /

@@ -1,7 +1,7 @@
 "use client";
 
-import { useState, useCallback } from "react";
-import { Upload, Video, Loader2, Download, Image as ImageIcon, CheckCircle2, AlertCircle, Play } from "lucide-react";
+import { useState, useCallback, useRef } from "react";
+import { Upload, Video, Loader2, Download, Image as ImageIcon, CheckCircle2, AlertCircle, Play, XCircle } from "lucide-react";
 import axios from "axios";
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
@@ -28,6 +28,8 @@ export default function Home() {
   const [jobId, setJobId] = useState<string | null>(null);
   const [jobStatus, setJobStatus] = useState<JobStatus | null>(null);
   const [isDragging, setIsDragging] = useState(false);
+  const [isCancelling, setIsCancelling] = useState(false);
+  const pollingIntervalRef = useRef<NodeJS.Timeout | null>(null);
 
   const handleDrop = useCallback((e: React.DragEvent) => {
     e.preventDefault();
@@ -64,19 +66,59 @@ export default function Home() {
   };
 
   const pollJobStatus = async (id: string) => {
+    // Clear any existing interval
+    if (pollingIntervalRef.current) {
+      clearInterval(pollingIntervalRef.current);
+    }
+
     const interval = setInterval(async () => {
       try {
         const response = await axios.get(`${API_URL}/api/status/${id}`);
         setJobStatus(response.data);
 
-        if (response.data.status === 'completed' || response.data.status === 'failed') {
-          clearInterval(interval);
+        if (response.data.status === 'completed' || response.data.status === 'failed' || response.data.status === 'cancelled') {
+          if (pollingIntervalRef.current) {
+            clearInterval(pollingIntervalRef.current);
+            pollingIntervalRef.current = null;
+          }
         }
       } catch (error) {
         console.error('Status check failed:', error);
-        clearInterval(interval);
+        if (pollingIntervalRef.current) {
+          clearInterval(pollingIntervalRef.current);
+          pollingIntervalRef.current = null;
+        }
       }
     }, 3000);
+
+    pollingIntervalRef.current = interval;
+  };
+
+  const cancelJob = async () => {
+    if (!jobId) return;
+
+    setIsCancelling(true);
+    try {
+      await axios.post(`${API_URL}/api/cancel/${jobId}`);
+      
+      // Stop polling
+      if (pollingIntervalRef.current) {
+        clearInterval(pollingIntervalRef.current);
+        pollingIntervalRef.current = null;
+      }
+
+      // Update status immediately
+      setJobStatus(prev => prev ? {
+        ...prev,
+        status: 'cancelled',
+        progress: 'Job cancelled by user'
+      } : null);
+    } catch (error) {
+      console.error('Cancel failed:', error);
+      alert('Failed to cancel job. Please try again.');
+    } finally {
+      setIsCancelling(false);
+    }
   };
 
   const downloadVideo = () => {
@@ -92,9 +134,16 @@ export default function Home() {
   };
 
   const reset = () => {
+    // Clear polling interval if running
+    if (pollingIntervalRef.current) {
+      clearInterval(pollingIntervalRef.current);
+      pollingIntervalRef.current = null;
+    }
+    
     setFiles([]);
     setJobId(null);
     setJobStatus(null);
+    setIsCancelling(false);
   };
 
   return (
@@ -184,7 +233,40 @@ export default function Home() {
                   <h3 className="text-2xl font-semibold mb-2 text-black">
                     Processing Your Video
                   </h3>
-                  <p className="text-gray-600">{jobStatus.progress}</p>
+                  <p className="text-gray-600 mb-4">{jobStatus.progress}</p>
+                  <button
+                    onClick={cancelJob}
+                    disabled={isCancelling}
+                    className="inline-flex items-center gap-2 px-6 py-2 bg-red-600 text-white font-semibold rounded-lg hover:bg-red-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    {isCancelling ? (
+                      <>
+                        <Loader2 className="w-4 h-4 animate-spin" />
+                        Cancelling...
+                      </>
+                    ) : (
+                      <>
+                        <XCircle className="w-4 h-4" />
+                        Cancel Generation
+                      </>
+                    )}
+                  </button>
+                </>
+              ) : jobStatus.status === 'cancelled' ? (
+                <>
+                  <XCircle className="w-16 h-16 mx-auto mb-4 text-orange-500" />
+                  <h3 className="text-2xl font-semibold mb-2 text-black">
+                    Generation Cancelled
+                  </h3>
+                  <p className="text-gray-600 mb-6">
+                    The video generation was cancelled
+                  </p>
+                  <button
+                    onClick={reset}
+                    className="px-6 py-3 bg-black text-white font-semibold rounded-lg hover:bg-gray-800 transition-colors"
+                  >
+                    Start New Generation
+                  </button>
                 </>
               ) : jobStatus.status === 'completed' ? (
                 <>

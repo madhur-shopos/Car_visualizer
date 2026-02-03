@@ -133,6 +133,12 @@ async def process_video_generation(job_id: str, input_dir: str, output_dir: str)
     """
     try:
         logger.info(f"Starting job {job_id}")
+        
+        # Check if job was cancelled before starting
+        if job_status[job_id].get("status") == "cancelled":
+            logger.info(f"Job {job_id} was cancelled before processing started")
+            return
+        
         job_status[job_id]["status"] = "processing"
         job_status[job_id]["progress"] = "Generating contact sheet..."
         
@@ -141,6 +147,11 @@ async def process_video_generation(job_id: str, input_dir: str, output_dir: str)
             input_folder=input_dir,
             output_dir=output_dir
         )
+        
+        # Check if cancelled during processing
+        if job_status[job_id].get("status") == "cancelled":
+            logger.info(f"Job {job_id} was cancelled during processing")
+            return
         
         if "error" in result:
             job_status[job_id]["status"] = "failed"
@@ -157,9 +168,11 @@ async def process_video_generation(job_id: str, input_dir: str, output_dir: str)
             logger.info(f"Job {job_id} completed successfully")
             
     except Exception as e:
-        logger.exception(f"Error processing job {job_id}")
-        job_status[job_id]["status"] = "failed"
-        job_status[job_id]["error"] = str(e)
+        # Don't mark as failed if it was cancelled
+        if job_status[job_id].get("status") != "cancelled":
+            logger.exception(f"Error processing job {job_id}")
+            job_status[job_id]["status"] = "failed"
+            job_status[job_id]["error"] = str(e)
 
 @app.get("/api/status/{job_id}", response_model=JobStatusResponse)
 async def get_job_status(job_id: str):
@@ -221,6 +234,30 @@ async def download_contact_sheet(job_id: str):
         media_type="image/png",
         filename=f"contact_sheet_{job_id}.png"
     )
+
+@app.post("/api/cancel/{job_id}")
+async def cancel_job(job_id: str):
+    """
+    Cancel a running or queued job
+    """
+    if job_id not in job_status:
+        raise HTTPException(status_code=404, detail="Job not found")
+    
+    job = job_status[job_id]
+    
+    # Only allow cancellation of queued or processing jobs
+    if job["status"] not in ["queued", "processing"]:
+        raise HTTPException(
+            status_code=400, 
+            detail=f"Cannot cancel job with status: {job['status']}"
+        )
+    
+    # Mark as cancelled
+    job_status[job_id]["status"] = "cancelled"
+    job_status[job_id]["progress"] = "Job cancelled by user"
+    logger.info(f"Job {job_id} cancelled by user")
+    
+    return {"message": "Job cancelled successfully", "job_id": job_id}
 
 @app.delete("/api/jobs/{job_id}")
 async def delete_job(job_id: str):

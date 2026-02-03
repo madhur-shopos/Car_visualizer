@@ -83,13 +83,24 @@ async def upload_images(
     
     # Save uploaded files
     try:
+        logger.info(f"Received {len(files)} file(s) for upload")
         saved_files = []
-        for file in files:
+        for idx, file in enumerate(files, 1):
+            # Preserve original filename or add index if duplicate
             file_path = job_input_dir / file.filename
+            if file_path.exists():
+                # Handle duplicate filenames
+                stem = file_path.stem
+                suffix = file_path.suffix
+                file_path = job_input_dir / f"{stem}_{idx}{suffix}"
+                logger.warning(f"Duplicate filename detected, saving as: {file_path.name}")
+            
             with open(file_path, "wb") as buffer:
                 shutil.copyfileobj(file.file, buffer)
             saved_files.append(str(file_path))
-            logger.info(f"Saved file: {file.filename}")
+            logger.info(f"Saved file {idx}/{len(files)}: {file_path.name}")
+        
+        logger.info(f"Successfully saved {len(saved_files)} file(s) to {job_input_dir}")
         
         # Initialize job status
         job_status[job_id] = {

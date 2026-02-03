@@ -5,8 +5,8 @@ import "./globals.css";
 const inter = Inter({ subsets: ["latin"] });
 
 export const metadata: Metadata = {
-  title: "Car Video Generator",
-  description: "Generate professional automotive showcase videos from car images",
+  title: "Car Visualizer",
+  description: "Transform your car photos into professional showcase videos",
 };
 
 export default function RootLayout({

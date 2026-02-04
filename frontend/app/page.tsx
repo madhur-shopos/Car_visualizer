@@ -27,7 +27,24 @@ export default function Home() {
   const [jobStatus, setJobStatus] = useState<JobStatus | null>(null);
   const [isDragging, setIsDragging] = useState(false);
   const [isCancelling, setIsCancelling] = useState(false);
+  const [rateLimitError, setRateLimitError] = useState<string | null>(null);
+  const [remainingGenerations, setRemainingGenerations] = useState<number | null>(null);
   const pollingIntervalRef = useRef<NodeJS.Timeout | null>(null);
+
+  // Load remaining generations on mount
+  const loadRateLimit = async () => {
+    try {
+      const response = await axios.get('/api/rate-limit');
+      setRemainingGenerations(response.data.remaining_today);
+    } catch (error) {
+      console.error('Failed to load rate limit:', error);
+    }
+  };
+
+  // Load on mount
+  if (remainingGenerations === null && !jobId) {
+    loadRateLimit();
+  }
 
   const handleDrop = useCallback((e: React.DragEvent) => {
     e.preventDefault();
@@ -51,6 +68,7 @@ export default function Home() {
     files.forEach(file => formData.append('files', file));
 
     try {
+      setRateLimitError(null);
       const response = await axios.post('/api/upload', formData, {
         headers: { 'Content-Type': 'multipart/form-data' },
       });
@@ -58,8 +76,20 @@ export default function Home() {
       const { job_id } = response.data;
       setJobId(job_id);
       pollJobStatus(job_id);
-    } catch (error) {
+      
+      // Reload rate limit after successful upload
+      loadRateLimit();
+    } catch (error: any) {
       console.error('Upload failed:', error);
+      
+      // Check if it's a rate limit error (429)
+      if (error.response?.status === 429) {
+        const errorMessage = error.response?.data?.detail || 
+          'Daily generation limit reached. You have used all 15 generations today. Please try again tomorrow.';
+        setRateLimitError(errorMessage);
+      } else {
+        alert('Failed to upload files. Please try again.');
+      }
     }
   };
 
@@ -142,6 +172,7 @@ export default function Home() {
     setJobId(null);
     setJobStatus(null);
     setIsCancelling(false);
+    setRateLimitError(null);
   };
 
   return (
@@ -155,7 +186,37 @@ export default function Home() {
           <p className="text-gray-600 text-lg">
             Transform your car photos into professional showcase videos
           </p>
+          {remainingGenerations !== null && !jobId && (
+            <div className="mt-4 inline-block px-4 py-2 bg-gray-100 rounded-full">
+              <p className="text-sm text-gray-700">
+                <span className="font-semibold text-black">{remainingGenerations}</span> generations remaining today
+              </p>
+            </div>
+          )}
         </header>
+
+        {/* Rate Limit Error */}
+        {rateLimitError && (
+          <div className="mb-8 border-2 border-red-500 rounded-lg p-6 bg-red-50">
+            <div className="flex items-start gap-4">
+              <AlertCircle className="w-6 h-6 text-red-600 flex-shrink-0 mt-1" />
+              <div>
+                <h3 className="text-lg font-semibold text-red-900 mb-2">
+                  Rate Limit Exceeded
+                </h3>
+                <p className="text-red-700 mb-4">
+                  {rateLimitError}
+                </p>
+                <button
+                  onClick={() => setRateLimitError(null)}
+                  className="px-4 py-2 bg-red-600 text-white font-semibold rounded-lg hover:bg-red-700 transition-colors"
+                >
+                  Dismiss
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* Upload Section */}
         {!jobId && (
@@ -235,7 +296,7 @@ export default function Home() {
                   <button
                     onClick={cancelJob}
                     disabled={isCancelling}
-                    className="inline-flex items-center gap-2 px-6 py-2 bg-red-600 text-white font-semibold rounded-lg hover:bg-red-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                    className="inline-flex items-center gap-2 px-6 py-2 bg-black text-white font-semibold rounded-lg hover:bg-gray-800 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                   >
                     {isCancelling ? (
                       <>
@@ -260,7 +321,10 @@ export default function Home() {
                     The video generation was cancelled
                   </p>
                   <button
-                    onClick={reset}
+                    onClick={() => {
+                      reset();
+                      loadRateLimit();
+                    }}
                     className="px-6 py-3 bg-black text-white font-semibold rounded-lg hover:bg-gray-800 transition-colors"
                   >
                     Start New Generation
@@ -342,7 +406,10 @@ export default function Home() {
                 </div>
 
                 <button
-                  onClick={reset}
+                  onClick={() => {
+                    reset();
+                    loadRateLimit();
+                  }}
                   className="w-full py-3 text-gray-600 hover:text-black transition-colors font-medium"
                 >
                   Generate Another Video

@@ -3,7 +3,7 @@ FastAPI Backend for Car Video Generation
 Wraps the existing gg.py pipeline with REST API endpoints
 """
 
-from fastapi import FastAPI, UploadFile, File, BackgroundTasks, HTTPException
+from fastapi import FastAPI, UploadFile, File, BackgroundTasks, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
 from pydantic import BaseModel
@@ -15,6 +15,7 @@ import shutil
 from pathlib import Path
 import asyncio
 import logging
+from datetime import datetime
 
 # Add parent directory to path to import gg.py
 sys.path.append(str(Path(__file__).parent.parent))
@@ -44,6 +45,10 @@ OUTPUT_DIR.mkdir(exist_ok=True)
 # Store job status in memory (use Redis in production)
 job_status = {}
 
+# Rate limiting: Track generations per IP per day
+# Format: { "ip_address": { "date": "YYYY-MM-DD", "count": N } }
+rate_limit_store = {}
+
 class JobResponse(BaseModel):
     job_id: str
     status: str
@@ -56,13 +61,65 @@ class JobStatusResponse(BaseModel):
     result: Optional[dict] = None
     error: Optional[str] = None
 
+# Rate limiting configuration
+MAX_GENERATIONS_PER_DAY = 15
+
+def check_rate_limit(ip_address: str) -> tuple[bool, int]:
+    """
+    Check if IP address has exceeded daily rate limit.
+    Returns (is_allowed, remaining_count)
+    """
+    today = datetime.now().strftime("%Y-%m-%d")
+    
+    if ip_address not in rate_limit_store:
+        rate_limit_store[ip_address] = {"date": today, "count": 0}
+    
+    user_data = rate_limit_store[ip_address]
+    
+    # Reset count if it's a new day
+    if user_data["date"] != today:
+        rate_limit_store[ip_address] = {"date": today, "count": 0}
+        user_data = rate_limit_store[ip_address]
+    
+    remaining = MAX_GENERATIONS_PER_DAY - user_data["count"]
+    is_allowed = user_data["count"] < MAX_GENERATIONS_PER_DAY
+    
+    return is_allowed, max(0, remaining)
+
+def increment_rate_limit(ip_address: str):
+    """Increment the generation count for an IP address."""
+    today = datetime.now().strftime("%Y-%m-%d")
+    
+    if ip_address not in rate_limit_store:
+        rate_limit_store[ip_address] = {"date": today, "count": 0}
+    
+    rate_limit_store[ip_address]["count"] += 1
+
 @app.get("/")
 async def root():
     """Health check endpoint"""
     return {"status": "ok", "message": "Car Video Generator API"}
 
+@app.get("/api/rate-limit")
+async def get_rate_limit(request: Request):
+    """Get remaining generations for the current user"""
+    client_ip = request.client.host if request.client else "unknown"
+    is_allowed, remaining = check_rate_limit(client_ip)
+    
+    today = datetime.now().strftime("%Y-%m-%d")
+    used = rate_limit_store.get(client_ip, {}).get("count", 0) if client_ip in rate_limit_store else 0
+    
+    return {
+        "max_per_day": MAX_GENERATIONS_PER_DAY,
+        "used_today": used,
+        "remaining_today": remaining,
+        "date": today,
+        "is_allowed": is_allowed
+    }
+
 @app.post("/api/upload", response_model=JobResponse)
 async def upload_images(
+    request: Request,
     background_tasks: BackgroundTasks,
     files: List[UploadFile] = File(...)
 ):
@@ -71,6 +128,21 @@ async def upload_images(
     """
     if not files:
         raise HTTPException(status_code=400, detail="No files uploaded")
+    
+    # Get client IP address
+    client_ip = request.client.host if request.client else "unknown"
+    
+    # Check rate limit
+    is_allowed, remaining = check_rate_limit(client_ip)
+    
+    if not is_allowed:
+        logger.warning(f"Rate limit exceeded for IP: {client_ip}")
+        raise HTTPException(
+            status_code=429,
+            detail=f"Daily generation limit reached. You have used all {MAX_GENERATIONS_PER_DAY} generations today. Please try again tomorrow."
+        )
+    
+    logger.info(f"Rate limit check for {client_ip}: {remaining} generations remaining")
     
     # Generate unique job ID
     job_id = str(uuid.uuid4())
@@ -109,6 +181,9 @@ async def upload_images(
             "input_files": saved_files,
         }
         
+        # Increment rate limit counter
+        increment_rate_limit(client_ip)
+        
         # Start background task
         background_tasks.add_task(
             process_video_generation,
@@ -117,10 +192,13 @@ async def upload_images(
             str(job_output_dir)
         )
         
+        # Get remaining generations
+        _, remaining = check_rate_limit(client_ip)
+        
         return JobResponse(
             job_id=job_id,
             status="queued",
-            message=f"Processing {len(files)} images. Check status at /api/status/{job_id}"
+            message=f"Processing {len(files)} images. {remaining} generations remaining today. Check status at /api/status/{job_id}"
         )
         
     except Exception as e:

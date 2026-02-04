@@ -79,11 +79,11 @@ export default function Home() {
       
       // Reload rate limit after successful upload
       loadRateLimit();
-    } catch (error: any) {
+    } catch (error) {
       console.error('Upload failed:', error);
       
       // Check if it's a rate limit error (429)
-      if (error.response?.status === 429) {
+      if (axios.isAxiosError(error) && error.response?.status === 429) {
         const errorMessage = error.response?.data?.detail || 
           'Daily generation limit reached. You have used all 15 generations today. Please try again tomorrow.';
         setRateLimitError(errorMessage);
